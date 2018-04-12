@@ -1,0 +1,186 @@
+---
+title: "Machine Learning - Course project"
+author: "Yannick Dewilde"
+date: "6 avril 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+
+library(caret)
+library(rpart)
+library(rattle)
+library(rpart.plot)
+library(RColorBrewer)
+library(knitr)
+library(randomForest)
+
+```
+
+## Data
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+The data for this project come from this source: http://groupware.les.inf.puc-rio.br/har. If you use the document you create for this class for any purpose please cite them as they have been very generous in allowing their data to be used for this kind of assignment.
+
+
+## Getting the data 
+```{r }
+trainURL <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+download.file(url=trainURL, destfile="training.csv")
+
+testURL <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+download.file(url=testURL, destfile="testing.csv")
+
+train <- read.csv("training.csv", na.strings=c("NA","#DIV/0!",""))
+test <- read.csv("testing.csv", na.strings=c("NA","#DIV/0!",""))
+
+# head(train)
+# head(test)
+
+dim(train)
+dim(test)
+```
+
+## Splitting training data for cross validation
+
+```{r }
+set.seed(5336)
+in_Train <- createDataPartition(y=train$classe, p=0.6, list=FALSE)
+Train_set <- train[in_Train, ]
+Test_set <- train[-in_Train, ]
+dim(Train_set)
+dim(Test_set)
+
+```
+
+## Data cleaning 
+
+```{r }
+
+# Removing data with near zero variance
+nzv <- nearZeroVar(Train_set, saveMetrics=TRUE)
+Train_set <- Train_set[,nzv$nzv==FALSE]
+
+nzv<- nearZeroVar(Test_set,saveMetrics=TRUE)
+Test_set <- Test_set[,nzv$nzv==FALSE]
+
+# Removing data with too many NA values (min 70%)
+Train_set_clean <- Train_set
+for (i in 1:length(Train_set)) {
+  if (sum(is.na(Train_set[ , i])) / nrow(Train_set) >= .7) {
+    for (j in 1:length(Train_set_clean)) {
+      if (length(grep(names(Train_set[i]), names(Train_set_clean)[j]))==1) {
+        Train_set_clean <- Train_set_clean[ , -j]
+      }
+    }
+  }
+}
+
+dim(Train_set_clean)
+
+# Removing the predicted variable 
+Train_set_clean <- Train_set_clean[c(-1)]
+
+```
+```{r echo=FALSE}
+sub <- names(Train_set)
+```
+
+
+## Decision Trees
+
+```{r }
+set.seed(5336)
+mod1 <- rpart(classe ~ ., data=Train_set_clean, method="class")
+fancyRpartPlot(mod1)
+
+```
+
+```{r}
+#cross validation 
+pred_mod1 <- predict(mod1, Test_set, type = "class")
+dectree <- confusionMatrix(pred_mod1, Test_set$classe)
+dectree
+```
+
+```{r}
+#in sample error
+predictTrain1 <- predict(mod1, Train_set_clean, type = "class")
+confusionMatrix(Train_set_clean$classe, predictTrain1)
+
+```
+
+
+
+```{r}
+plot(dectree$table, col = dectree$byClass, main = 
+       paste("Decision Tree - Confusion Matrix: Accuracy =", 
+                                                        round(dectree$overall['Accuracy']*100, 2),"%"))
+```
+
+
+The accuracy calculated from the cross validation is 88.4%, while the accuracy is 88.8% when we fit the model on the trainig set.
+
+
+## Random Forest 
+
+```{r}
+set.seed(5336)
+mod2 <- randomForest(classe~., data = Train_set_clean)
+print(mod2)
+```
+
+```{r}
+#cross validation 
+predict2 <- predict(mod2, Test_set, type = "class")
+confusionMatrix(Test_set$classe, predict2)
+```
+
+
+```{r}
+#in sample error
+predictTrain2 <- predict(mod2, Train_set_clean, type = "class")
+confusionMatrix(Train_set_clean$classe, predictTrain2)
+
+```
+
+The accuracy calculated from the cross validation is 99%, while the accuracy is 100% when we fit the model on the trainig set. 
+
+## Use of the prediction model to predict 20 different test cases
+Since the Random Forest is more accurate, we use this model to predict the 20 test cases. 
+
+We firstly need to use the same class in the test set as in the training set:
+```{r}
+# Select the same variables
+sub <- names(test) %in% names (Train_set_clean[, -58])
+test_sub <- test[,sub]
+
+
+
+# To get the same class between testing and myTraining
+test_OK <- rbind(Train_set_clean[1, -58] , test_sub)
+test_OK <- test_OK[-1,]
+
+# Predict on test set 
+predict_20 <- predict(mod2, test_OK, type = "class")
+print(predict_20)
+
+
+export_files = function(x) {
+  n = length(x)
+  for (i in 1:n) {
+    filename = paste0("problem_id_", i, ".txt")
+    write.table(x[i], file=filename, quote=FALSE,row.names=FALSE, col.names=FALSE)
+  }
+}
+
+export_files(predict_20)
+
+
+```
